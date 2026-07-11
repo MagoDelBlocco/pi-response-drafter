@@ -32,14 +32,37 @@ import { resolveDrafterModel, runDrafter } from "./llm";
 import { runReview, runQuestionReview } from "./review";
 import { logCycle, type CycleAction } from "./telemetry";
 import type { DraftResult } from "./schema";
+import { createGhostTextEditor } from "./ghost-text";
 
 const MAX_ROUNDS = 4;
+
+const SPINNER_FRAMES = ["◐", "◓", "◑", "◒"];
 
 /** What the cycle decided to do with the user's input. */
 type CycleResult =
   | { kind: "text"; text: string } // a finalized drafted/edited prompt to inject
   | { kind: "raw" } // fall back to the user's raw input (reject / failure)
   | { kind: "none" }; // nothing to send (cancelled)
+
+/**
+ * Animate a "generating draft" status spinner. Returns a function that stops the
+ * animation and clears the status (safe to call from a `finally`).
+ */
+function startSpinner(ctx: ExtensionContext): () => void {
+  const label = ctx.ui.theme.fg("accent", "generating draft ");
+  let frame = 0;
+  let timer: NodeJS.Timeout;
+  const tick = () => {
+    ctx.ui.setStatus("drafter", ctx.ui.theme.bg("toolPendingBg", `${label}${ctx.ui.theme.fg("accent", SPINNER_FRAMES[frame])}`));
+    frame = (frame + 1) % SPINNER_FRAMES.length;
+    timer = setTimeout(tick, 90);
+  };
+  tick();
+  return () => {
+    clearTimeout(timer);
+    ctx.ui.setStatus("drafter", undefined);
+  };
+}
 
 export default function responseDrafter(pi: ExtensionAPI) {
   // The last drafter-failure reason we surfaced. We suppress repeats of the *same*
@@ -71,7 +94,6 @@ export default function responseDrafter(pi: ExtensionAPI) {
     }
 
     const { transcriptText } = assembleContext(ctx.sessionManager.getBranch(), config.contextTurns);
-    ctx.ui.notify("Drafter: processing your input…", "info");
     const clarifications: Array<{ question: string; answer: string }> = [];
 
     // Telemetry helper bound to this cycle's stable inputs.
@@ -90,7 +112,7 @@ export default function responseDrafter(pi: ExtensionAPI) {
       const userPrompt = buildDraftPrompt({ userInput: rawText, transcriptText, clarifications });
 
       let draft: DraftResult;
-      ctx.ui.setStatus("drafter", "drafting…");
+      const stopSpinner = startSpinner(ctx);
       try {
         draft = await runDrafter(model, { apiKey: auth.apiKey, headers: auth.headers }, userPrompt, ctx.signal);
         lastFailureReason = null; // a success re-arms failure notifications
@@ -104,7 +126,7 @@ export default function responseDrafter(pi: ExtensionAPI) {
         await log("fallback", null, null);
         return { kind: "raw" };
       } finally {
-        ctx.ui.setStatus("drafter", undefined);
+        stopSpinner();
       }
 
       // Parse failure / degenerate output: don't invent — fall back to raw input.
@@ -132,7 +154,9 @@ export default function responseDrafter(pi: ExtensionAPI) {
         return { kind: "text", text: draft.prompt };
       }
 
+      ctx.ui.setEditorComponent(createGhostTextEditor(draft.prompt));
       const outcome = await runReview(ctx, draft, rawText);
+      ctx.ui.setEditorComponent(undefined);
       switch (outcome.kind) {
         case "accept":
           await log("accept", draft, null);

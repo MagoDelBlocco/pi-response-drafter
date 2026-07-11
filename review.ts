@@ -34,6 +34,7 @@ import {
 import { type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import type { DraftResult } from "./schema";
 import { BoxBorderTop, BoxBorderBottom } from "./borders";
+import { notifyDesktop } from "./notify";
 
 const _require = createRequire(import.meta.url);
 const VERSION: string = (_require("./package.json") as { version: string }).version;
@@ -83,7 +84,6 @@ class ReviewComponent extends Container {
 
   private titleText = new Text("", 1, 0);
   private assumptionsText?: Text;
-  private promptText = new Text("", 1, 0);
   private list: SelectList;
   private helpText = new Text("", 1, 0);
   private confirmArmed = false;
@@ -111,8 +111,6 @@ class ReviewComponent extends Container {
       this.addChild(new Spacer(1));
     }
 
-    this.addChild(this.promptText);
-    this.addChild(new Spacer(1));
     this.addChild(this.list);
     this.addChild(new Spacer(1));
     this.addChild(this.helpText);
@@ -134,8 +132,6 @@ class ReviewComponent extends Container {
       }
       this.assumptionsText.setText(lines.join("\n"));
     }
-
-    this.promptText.setText(t.fg("text", this.draft.prompt));
 
     this.helpText.setText(this.buildHints());
   }
@@ -209,6 +205,7 @@ export async function runReview(ctx: ExtensionContext, draft: DraftResult, _rawI
   let action: Action | undefined;
 
   if (ctx.mode === "tui") {
+    notifyDesktop("Drafter: review draft", `mode: ${draft.mode}, assumptions: ${draft.assumptions.length}`);
     action = await ctx.ui.custom<Action>(
       (tui, theme, _keybindings, done) => new ReviewComponent(tui, theme, draft, done),
       {
@@ -217,7 +214,7 @@ export async function runReview(ctx: ExtensionContext, draft: DraftResult, _rawI
           anchor: "center" as const,
           width: "92%",
           minWidth: 40,
-          maxHeight: "85%",
+          maxHeight: "60%",
           margin: 1,
         },
       },
@@ -229,17 +226,20 @@ export async function runReview(ctx: ExtensionContext, draft: DraftResult, _rawI
     action = await runReviewDialogs(ctx, draft);
   }
 
+  const editorText = ctx.ui.getEditorText();
   switch (action) {
     case "accept":
-      return { kind: "accept", text: draft.prompt };
+      return { kind: "accept", text: editorText || draft.prompt };
     case "edit": {
-      const edited = await ctx.ui.editor("Edit the drafted prompt", draft.prompt);
+      notifyDesktop("Drafter: edit draft", `mode: ${draft.mode}`);
+      const edited = await ctx.ui.editor("Edit the drafted prompt", editorText || draft.prompt);
       if (edited === undefined || edited.trim().length === 0) return { kind: "cancel" };
       return { kind: "edit", text: edited.trim() };
     }
     case "reject":
       return { kind: "reject" };
     case "ask": {
+      notifyDesktop("Drafter: enter guidance", `mode: ${draft.mode}`);
       const note = await ctx.ui.input("What should the drafter revise or add?", "Your guidance...");
       if (note === undefined || note.trim().length === 0) return { kind: "cancel" };
       return { kind: "ask", note: note.trim() };
@@ -251,10 +251,11 @@ export async function runReview(ctx: ExtensionContext, draft: DraftResult, _rawI
 
 /** Dialog-based fallback that still surfaces the assumptions before the choice. */
 async function runReviewDialogs(ctx: ExtensionContext, draft: DraftResult): Promise<Action> {
+  notifyDesktop("Drafter: review draft", `mode: ${draft.mode}, assumptions: ${draft.assumptions.length}`);
   const assumptionBlock = draft.assumptions.length
     ? `\n\n⚠ Assumptions (verify):\n${draft.assumptions.map((a) => `  • ${a}`).join("\n")}`
     : "";
-  const title = `Drafted prompt (mode: ${draft.mode}):\n\n${draft.prompt}${assumptionBlock}`;
+  const title = `Review draft (mode: ${draft.mode})${assumptionBlock}`;
 
   const labels = ACTION_ITEMS.map((i) => i.label);
   const choice = await ctx.ui.select(title, labels);
@@ -264,6 +265,7 @@ async function runReviewDialogs(ctx: ExtensionContext, draft: DraftResult): Prom
 
   // Honor the accept gate in the dialog path too.
   if (picked === "accept" && draft.assumptions.length > 0) {
+    notifyDesktop("Drafter: confirm accept", `assumptions: ${draft.assumptions.length}`);
     const confirmed = await ctx.ui.confirm("Confirm accept", "This draft contains assumptions. Inject it anyway?");
     return confirmed ? "accept" : "cancel";
   }
@@ -407,6 +409,7 @@ export async function runQuestionReview(
   const answers: (string | undefined)[] = new Array(questions.length).fill(undefined);
 
   while (true) {
+    notifyDesktop("Drafter: needs clarification", `${questions.length} question(s) to answer`);
     const action = await ctx.ui.custom<QuestionAction>(
       (tui, theme, _keybindings, done) => new QuestionComponent(tui, theme, questions, answers, done),
       {
@@ -415,7 +418,7 @@ export async function runQuestionReview(
           anchor: "center" as const,
           width: "92%",
           minWidth: 40,
-          maxHeight: "85%",
+          maxHeight: "60%",
           margin: 1,
         },
       },
@@ -427,6 +430,7 @@ export async function runQuestionReview(
 
     if (action.startsWith("answer-")) {
       const index = Number(action.split("-")[1]);
+      notifyDesktop("Drafter: answer question", `Q${index + 1}: ${questions[index]}`);
       const answer = await ctx.ui.input(questions[index], "Your answer (Esc to cancel)…");
       if (answer === undefined) throw new Error("cancelled");
       answers[index] = answer.trim();

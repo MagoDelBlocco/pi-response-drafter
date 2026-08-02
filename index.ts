@@ -225,10 +225,28 @@ export default function responseDrafter(pi: ExtensionAPI) {
     },
   });
 
+  // ── Ctrl+Enter: submit raw, bypassing the drafter ─────────────────────────
+  // Sends the current input verbatim as an extension message; the input hook
+  // below ignores non-interactive sources, so it never gets drafted. Requires a
+  // terminal that reports ctrl+enter distinctly (enhanced/Kitty keyboard mode).
+  pi.registerShortcut("ctrl+enter", {
+    description: "Send input to the agent, bypassing the drafter",
+    handler: (ctx) => {
+      const text = ctx.ui.getEditorText();
+      if (!text.trim()) return;
+      ctx.ui.setEditorText("");
+      pi.sendUserMessage(text);
+    },
+  });
+
   // ── Optional auto-trigger via the input hook (opt-in) ──────────────────────
   pi.on("input", async (event: InputEvent, ctx: ExtensionContext): Promise<InputEventResult> => {
     const config = getConfig(pi);
     if (!config.enabled) return { action: "continue" };
+    // Steering an already-working agent (not the user's idle turn): send exactly
+    // what was typed. `streamingBehavior` is set while the agent is mid-turn and
+    // undefined when idle — drafting only applies to fresh, idle-turn prompts.
+    if (event.streamingBehavior !== undefined) return { action: "continue" };
     // `/draft auto` (runtime) forces always-mode; otherwise fall back to the flag.
     const trigger = autoEnabled ? "always" : config.trigger;
     if (trigger === "command") return { action: "continue" };

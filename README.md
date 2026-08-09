@@ -47,6 +47,24 @@ it never blocks you.
 
 In the review panel: `A`ccept · `E`dit · `R`eject · `?`Ask, or `↑↓` + `Enter`.
 
+### Skipping the drafter
+
+Not every prompt is worth drafting. Submit with **`alt+r`** instead of `Enter` and
+your input goes to the agent verbatim — no drafter call, no review panel, no
+latency. It's silent by design: nothing happening *is* the feedback.
+
+`ctrl+enter` does the same thing, but only in terminals with enhanced/Kitty
+keyboard mode — legacy terminals send a bare CR for it, indistinguishable from
+`Enter`. `alt+r` works in both.
+
+Mid-turn (agent still streaming) the drafter is bypassed anyway, and `alt+r`
+simply steers, same as `Enter`.
+
+> Why not `alt+enter`? Pi reserves it for `app.message.followUp`, and reserved
+> bindings cause an extension's shortcut to be dropped entirely. The key is
+> hardcoded rather than a flag because CLI flag values are applied *after*
+> extensions load, so a flag couldn't be read at shortcut-registration time.
+
 ## Configuration (CLI flags)
 
 | Flag | Default | Meaning |
@@ -80,7 +98,7 @@ spacer skeleton, select-list theme, dim/muted help hints). Edit live and `/reloa
 
 ## Layout
 
-- `index.ts` — wiring: flags, `/draft` command, optional `input`-hook auto-trigger, the cycle orchestrator.
+- `index.ts` — wiring: flags, `/draft` command, raw-submit shortcuts, optional `input`-hook auto-trigger, the cycle orchestrator.
 - `config.ts` — flag registration + resolution.
 - `context.ts` — transcript slice assembler (recency-windowed by user turn).
 - `prompt.ts` — the anti-fabrication system contract + prompt builder.

@@ -8,7 +8,8 @@
  * more clearly without making things up.
  *
  * Trigger: enabled and automatic by default. Set `drafter-trigger=command`
- * to restrict to explicit `/draft` invocation only.
+ * to restrict to explicit `/draft` invocation only. Per-message, `alt+r` submits
+ * the input raw and skips the drafter entirely.
  *
  * Safety rests on two things working together:
  *   - the anti-fabrication contract at generation time (prompt.ts §6), and
@@ -225,18 +226,39 @@ export default function responseDrafter(pi: ExtensionAPI) {
     },
   });
 
-  // ── Ctrl+Enter: submit raw, bypassing the drafter ─────────────────────────
-  // Sends the current input verbatim as an extension message; the input hook
-  // below ignores non-interactive sources, so it never gets drafted. Requires a
-  // terminal that reports ctrl+enter distinctly (enhanced/Kitty keyboard mode).
+  // ── Raw submit: send verbatim, bypassing the drafter ──────────────────────
+  // Not every prompt is worth drafting. These keys submit exactly what's typed
+  // as an extension message; the input hook below ignores non-interactive
+  // sources, so it never gets drafted. Deliberately silent — the absence of the
+  // review overlay is the only feedback needed.
+  //
+  // Two bindings because neither is universal:
+  //   alt+r      — works in legacy terminals (ESC-prefixed) *and* under the
+  //                Kitty protocol, and collides with no built-in binding.
+  //   ctrl+enter — nicer muscle memory, but legacy terminals send a bare CR for
+  //                it (indistinguishable from Enter), so it only fires under
+  //                enhanced/Kitty keyboard mode.
+  //
+  // alt+enter would be the obvious choice and is NOT usable: Pi reserves it for
+  // app.message.followUp, and reserved bindings drop an extension's shortcut
+  // outright. The key is hardcoded rather than a flag because CLI flag values
+  // are applied *after* extensions load, so getFlag() here would only ever see
+  // its own default.
+  const submitRaw = (ctx: ExtensionContext) => {
+    const text = ctx.ui.getEditorText();
+    if (!text.trim()) return;
+    ctx.ui.setEditorText("");
+    // Mirror what plain Enter does mid-turn (steer); idle is an ordinary send.
+    pi.sendUserMessage(text, ctx.isIdle() ? undefined : { deliverAs: "steer" });
+  };
+
+  pi.registerShortcut("alt+r", {
+    description: "Send input to the agent raw, bypassing the drafter",
+    handler: submitRaw,
+  });
   pi.registerShortcut("ctrl+enter", {
-    description: "Send input to the agent, bypassing the drafter",
-    handler: (ctx) => {
-      const text = ctx.ui.getEditorText();
-      if (!text.trim()) return;
-      ctx.ui.setEditorText("");
-      pi.sendUserMessage(text);
-    },
+    description: "Send input to the agent raw, bypassing the drafter (needs enhanced keyboard mode)",
+    handler: submitRaw,
   });
 
   // ── Optional auto-trigger via the input hook (opt-in) ──────────────────────

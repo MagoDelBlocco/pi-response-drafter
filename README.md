@@ -77,6 +77,33 @@ simply steers, same as `Enter`.
 | `drafter-auto-accept` | `off` | `off` or `when_no_assumptions`. |
 | `drafter-log-path` | `""` | Optional JSONL path for telemetry (see below). |
 
+Drafter requests always send `chat_template_kwargs: {"enable_thinking": false}`
+(the vLLM/SGLang convention, merged into the request body by pi-ai's
+OpenAI-compatible adapters; non-OpenAI APIs ignore it) — drafting wants a direct
+answer, not a chain-of-thought performance. No `temperature` is sent, so the
+drafter runs at whatever temperature the model/server is configured with.
+
+### Persistent config: `~/.pi/agent/drafter.json`
+
+CLI flags are per-invocation. For permanent settings, put them in
+`~/.pi/agent/drafter.json` — when the file is absent, everything behaves exactly
+as before:
+
+```json
+{
+  "model": "anthropic/claude-haiku-4-5",
+  "trigger": "command",
+  "contextTurns": 5
+}
+```
+
+Precedence: **CLI flag > `drafter.json` > built-in default.** Keys are the
+`DrafterConfig` fields in camelCase (`model`, `enabled`, `contextTurns`,
+`trigger`, `thresholdChars`, `autoAccept`, `logPath`); `drafter-`-prefixed and
+kebab/snake spellings are accepted. Invalid values are dropped per-key with a
+warning at session start; unknown keys are reported and ignored. The file is
+read once at extension load — edits need `/reload` or a restart.
+
 ## Telemetry (the self-check)
 
 Each cycle logs `{terse_input, transcript_hash, mode, drafted_prompt, assumptions,

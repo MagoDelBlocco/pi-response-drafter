@@ -26,6 +26,7 @@ import type {
   InputEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { getConfig, registerFlags, type DrafterConfig } from "./config";
+import { loadFileConfig } from "./file-config";
 import { parseAutoSubcommand } from "./commands";
 import { assembleContext } from "./context";
 import { buildDraftPrompt } from "./prompt";
@@ -66,6 +67,17 @@ function startSpinner(ctx: ExtensionContext): () => void {
 }
 
 export default function responseDrafter(pi: ExtensionAPI) {
+  // ~/.pi/agent/drafter.json — the permanent home for settings that CLI flags
+  // can't persist. Read once at load (same doctrine as prompt.md); values ride
+  // in as registered flag defaults, so precedence is CLI > file > built-in.
+  const fileConfig = loadFileConfig();
+
+  // Surface a broken scroll without blocking anything (spec §15.4 applies to
+  // config errors too): once per session start, only if the file exists and hurt.
+  pi.on("session_start", async (_event, ctx) => {
+    for (const err of fileConfig.errors) ctx.ui.notify(`Drafter config: ${err}`, "warning");
+  });
+
   // The last drafter-failure reason we surfaced. We suppress repeats of the *same*
   // error to avoid spamming every turn, but a new/changed error or a recovery (a
   // later success clears this) re-arms notification — so a persistently broken
@@ -284,7 +296,7 @@ export default function responseDrafter(pi: ExtensionAPI) {
     return { action: "continue" };
   });
 
-  registerFlags(pi);
+  registerFlags(pi, fileConfig.values);
 }
 
 

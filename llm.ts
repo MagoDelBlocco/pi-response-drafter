@@ -56,10 +56,20 @@ export async function runDrafter(
     timestamp: Date.now(),
   };
 
+  // Drafting wants a fast, direct answer — no chain-of-thought performance.
+  // `chat_template_kwargs` is the vLLM/SGLang convention for toggling it on
+  // OpenAI-compatible servers; `samplingParams` is merged into the request body
+  // as-is by pi-ai's OpenAI-compatible adapters (and ignored by other APIs, so
+  // this stays harmless when drafter-model points at Anthropic & co).
   const response = await complete(
     model,
     { messages: [message] },
-    { apiKey: auth.apiKey, headers: auth.headers, signal, temperature: 0.1 },
+    {
+      apiKey: auth.apiKey,
+      headers: auth.headers,
+      signal,
+      samplingParams: { chat_template_kwargs: { enable_thinking: false } },
+    },
   );
 
   if (response.stopReason === "aborted") {

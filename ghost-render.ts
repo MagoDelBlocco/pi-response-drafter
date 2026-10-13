@@ -9,7 +9,23 @@
  * @module
  */
 
-const CURSOR_BLOCK_START = "\x1b[7m";
+/**
+ * Anchor for the cursor cell, i.e. the marker the base editor puts on the line
+ * the cursor lives on. pi-tui (>= the 1.x split that moved reverse-video out of
+ * the editor) renders the cursor as zero-width APC markers — `CURSOR_MARKER`
+ * plus `FAKE_CURSOR_START … FAKE_CURSOR_END` — and only the TUI resolves those
+ * to `ESC[7m` AFTER components have rendered. A render() override therefore
+ * never sees literal reverse video; anchoring on `ESC[7m` silently finds nothing
+ * and the preview disappears. See `deriveCursorAnchors()` in ghost-text.ts.
+ */
+export const FAKE_CURSOR_START = "\x1b_pi:fc\x07";
+
+/** Pi <= the fake-cursor split drew the cursor block as literal reverse video. */
+export const LEGACY_CURSOR_BLOCK_START = "\x1b[7m";
+
+/** Anchors tried in order when the caller does not supply its own. */
+export const DEFAULT_CURSOR_ANCHORS: readonly string[] = [FAKE_CURSOR_START, LEGACY_CURSOR_BLOCK_START];
+
 const RESET = "\x1b[0m";
 const DIM = "\x1b[2m";
 
@@ -37,27 +53,48 @@ export function normalizeSuggestion(suggestion: string | null): string | null {
   return start <= end ? allLines.slice(start, end + 1).join("\n") : null;
 }
 
+/** Index of the first anchor present in `line`, or -1. */
+function findAnchor(line: string, anchors: readonly string[]): number {
+  let best = -1;
+  for (const anchor of anchors) {
+    const at = line.indexOf(anchor);
+    if (at !== -1 && (best === -1 || at < best)) best = at;
+  }
+  return best;
+}
+
 /**
  * Splice dim ghost rows for `suggestion` into `baseLines`, just below the
  * cursor row.
  *
- * We anchor on the inverse-video cursor block the base editor always renders
- * (`ESC[7m … ESC[0m`), so this works whether or not the editor is focused and
- * never touches the border rows. Blank source lines (paragraph breaks) are
- * dropped so the preview stays compact. Returns `baseLines` unchanged if the
- * cursor block is absent or there is no room.
+ * We anchor on the cursor marker the base editor always emits on the cursor row
+ * (see {@link FAKE_CURSOR_START}), so this works whether or not the editor is
+ * focused and never touches the border rows. Blank source lines (paragraph
+ * breaks) are dropped so the preview stays compact. Returns `baseLines`
+ * unchanged if no anchor is found or there is no room — the lossless default.
  */
 export function renderGhostRows(
   baseLines: string[],
   suggestion: string,
   width: number,
   metrics: TextMetrics,
+  anchors: readonly string[] = DEFAULT_CURSOR_ANCHORS,
 ): string[] {
-  const anchorIndex = baseLines.findIndex((l) => l.includes(CURSOR_BLOCK_START));
+  let anchorIndex = -1;
+  let anchorColumn = -1;
+  for (let i = 0; i < baseLines.length; i++) {
+    const at = findAnchor(baseLines[i], anchors);
+    if (at !== -1) {
+      anchorIndex = i;
+      anchorColumn = at;
+      break;
+    }
+  }
   if (anchorIndex === -1) return baseLines;
-  const anchorLine = baseLines[anchorIndex];
 
-  const cursorCol = metrics.width(anchorLine.slice(0, anchorLine.indexOf(CURSOR_BLOCK_START)));
+  // Markers are zero-width escape sequences, so the width of the prefix is the
+  // cursor column (pi-tui's visibleWidth strips APC/CSI codes).
+  const cursorCol = metrics.width(baseLines[anchorIndex].slice(0, anchorColumn));
   const available = width - cursorCol;
   if (available <= 1) return baseLines;
 

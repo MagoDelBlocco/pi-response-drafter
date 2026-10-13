@@ -13,11 +13,17 @@ import {
   type EditorOptions,
   type EditorTheme,
   matchesKey,
+  renderFakeCursor,
   type TUI,
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
-import { normalizeSuggestion, renderGhostRows, type TextMetrics } from "./ghost-render";
+import {
+  DEFAULT_CURSOR_ANCHORS,
+  normalizeSuggestion,
+  renderGhostRows,
+  type TextMetrics,
+} from "./ghost-render";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -36,6 +42,41 @@ const METRICS: TextMetrics = {
   width: visibleWidth,
   clip: (text, maxWidth) => truncateToWidth(text, maxWidth, ""),
 };
+
+/**
+ * Cursor anchors for the layout code, derived from the live pi-tui build.
+ *
+ * The editor marks the cursor row with `FAKE_CURSOR_START`, which pi-tui does
+ * NOT export; `renderFakeCursor()` is the public way to obtain the pair, so we
+ * probe it with a sentinel instead of duplicating a private constant and being
+ * silently broken by the next upgrade (which is exactly how the preview died
+ * once). The built-in defaults stay in the list as a fallback.
+ */
+function deriveCursorAnchors(): string[] {
+  const sentinel = "\u0000pi-fake-cursor\u0000";
+  // Guarded because the probe reaches into a third-party render helper whose
+  // contract we infer rather than read: a future pi-tui that changes
+  // renderFakeCursor() (or throws on a sentinel it doesn't expect) must degrade to
+  // the built-in anchors, never crash extension load. Losslessness (spec §15.4)
+  // outranks a precise anchor.
+  try {
+    const probe = renderFakeCursor(sentinel);
+    const at = probe.indexOf(sentinel);
+    const start = at > 0 ? probe.slice(0, at) : "";
+    // A degenerate probe (marker absent, or the whole string echoed) is no anchor.
+    if (start && start !== probe && !probe.includes(start + sentinel + start)) {
+      return [start, ...DEFAULT_CURSOR_ANCHORS];
+    }
+  } catch (err) {
+    // Deliberately swallowed: the anchor probe is best-effort. Falling back to the
+    // built-in defaults keeps the preview working as well as it can, and a broken
+    // preview must never break the prompt (spec §15.4).
+    void err;
+  }
+  return [...DEFAULT_CURSOR_ANCHORS];
+}
+
+const CURSOR_ANCHORS = deriveCursorAnchors();
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -92,7 +133,7 @@ export class GhostTextEditor extends CustomEditor {
   override render(width: number): string[] {
     const lines = super.render(width);
     if (!this.suggestion) return lines;
-    return renderGhostRows(lines, this.suggestion, width, METRICS);
+    return renderGhostRows(lines, this.suggestion, width, METRICS, CURSOR_ANCHORS);
   }
 }
 

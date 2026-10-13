@@ -8,14 +8,18 @@
  */
 
 import { complete, type UserMessage } from "@earendil-works/pi-ai/compat";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model, ProviderHeaders } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { parseDraft, type DraftResult } from "./schema";
 import { SYSTEM_CONTRACT } from "./prompt";
 
 export interface DrafterAuth {
   apiKey: string;
-  headers?: Record<string, string>;
+  /**
+   * Passed through verbatim: a null value is pi-ai's instruction to *drop* a
+   * default header, so this must stay `ProviderHeaders`, not `Record<string, string>`.
+   */
+  headers?: ProviderHeaders;
 }
 
 /**

@@ -91,6 +91,14 @@ docs: `README.md`.
   `node_modules/@earendil-works/pi-coding-agent` is a symlink. `npm install`
   fails wherever that path doesn't exist. `tsconfig.json` `paths` hardcode the
   same location.
+- The ghost preview anchors on the **cursor marker** the base editor emits, which
+  is *not* literal reverse video: pi-tui renders the cursor cell as zero-width APC
+  markers (`CURSOR_MARKER` + `FAKE_CURSOR_START`) and the TUI resolves them to
+  `ESC[7m` only *after* components render — so a `render()` override grepping for
+  `ESC[7m` finds nothing and the preview vanishes silently (it did, on the upgrade
+  to pi 1.2.0). `ghost-text.ts` re-derives the marker at load from the public
+  `renderFakeCursor()` and injects it into the pure `renderGhostRows()`; pi-tui does
+  not export the marker itself, so never hardcode it again.
 - `prompt.md` (the anti-fabrication system contract) is read once at module load
   (`prompt.ts`); edits need `/reload` or a session restart, not just a file save.
   Same load-once doctrine applies to `~/.pi/agent/drafter.json`.

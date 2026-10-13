@@ -1,26 +1,36 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { normalizeSuggestion, renderGhostRows, wrapText, type TextMetrics } from "../ghost-render";
+import {
+  FAKE_CURSOR_START,
+  LEGACY_CURSOR_BLOCK_START,
+  normalizeSuggestion,
+  renderGhostRows,
+  wrapText,
+  type TextMetrics,
+} from "../ghost-render";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const CURSOR_BLOCK_START = "\x1b[7m";
+/** pi-tui's hardware-cursor position marker (zero-width APC, focused only). */
+const CURSOR_MARKER = "\x1b_pi:c\x07";
+const FAKE_CURSOR_END = "\x1b_pi:/fc\x07";
 const RESET = "\x1b[0m";
 const DIM = "\x1b[2m";
 
-// ASCII metrics: the base lines below are ANSI-free before the cursor, so plain
-// string length equals visible width. (Production injects pi-tui's ANSI-aware
-// measurement instead.)
+// Escape-stripping width (like pi-tui's visibleWidth), otherwise ASCII length:
+// the cursor markers must not count toward the cursor column.
 const ascii: TextMetrics = {
-  width: (s) => s.length,
+  width: (s) => s.replace(/\x1b[^\x07]*\x07|\x1b\[[0-9;]*m/g, "").length,
   clip: (s, w) => s.slice(0, w),
 };
 
-// A base editor line with the cursor after "hello >>>" (cursor column = 9).
+// A base editor line with the cursor after "hello >>>" (cursor column = 9),
+// spelled the way pi-tui's Editor renders it: zero-width markers around the
+// grapheme drawn as the cursor.
 const CURSOR_COL = "hello >>>".length;
 function baseLines(): string[] {
-  return [`hello >>>${CURSOR_BLOCK_START} ${RESET}`];
+  return [`hello >>>${FAKE_CURSOR_START} ${FAKE_CURSOR_END}`];
 }
 
 /** Ghost rows are everything spliced in after the single base (cursor) line. */
@@ -85,9 +95,33 @@ test("wraps overly long suggestion lines onto subsequent ghost rows", () => {
   }
 });
 
-test("returns base lines unchanged when no cursor block is present", () => {
+test("returns base lines unchanged when no cursor marker is present", () => {
   const lines = ["no cursor here"];
   assert.deepEqual(renderGhostRows(lines, "Suggestion.", 120, ascii), lines);
+});
+
+test("anchors on the focused cursor: the hardware-cursor marker stays zero-width", () => {
+  const lines = [`hello >>>${CURSOR_MARKER}${FAKE_CURSOR_START}w${FAKE_CURSOR_END}orld`];
+  const rendered = renderGhostRows(lines, "Suggested continuation.", 120, ascii);
+  const row = rendered[rendered.length - 1];
+
+  assert.equal(row.slice(0, row.indexOf(DIM)).length, CURSOR_COL);
+});
+
+test("still anchors on the legacy reverse-video cursor block", () => {
+  const lines = [`hello >>>${LEGACY_CURSOR_BLOCK_START} ${RESET}`];
+  const rendered = renderGhostRows(lines, "Suggested continuation.", 120, ascii);
+
+  assert.ok(rendered.length > lines.length, "legacy cursor block should anchor ghost rows");
+  assert.equal(rendered[1].slice(0, rendered[1].indexOf(DIM)).length, CURSOR_COL);
+});
+
+test("caller-supplied anchors take precedence over the defaults", () => {
+  const lines = ["hello >>>@@cursor@@ rest"];
+  const rendered = renderGhostRows(lines, "Suggestion.", 120, ascii, ["@@cursor@@"]);
+
+  assert.ok(rendered.length > 1);
+  assert.equal(rendered[1].slice(0, rendered[1].indexOf(DIM)).length, CURSOR_COL);
 });
 
 test("returns base lines unchanged when there is no room for ghost text", () => {

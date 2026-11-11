@@ -55,7 +55,9 @@ ${userInput}
 ${clarifications}
 </clarifications>
 
-Draft the next prompt now. Remember: anything not present above goes in
-"assumptions", and if you cannot resolve the intent from these sources, ask.
+Lightly refine the latest user input for the coding agent. Keep it nearly
+verbatim when it is already clear. Do not answer it or describe the user.
+Avoid adding details or assumptions; flag any unavoidable material inference
+in "assumptions". If the intended objective is unclear, ask.
 Respond with the JSON object only.`;
 }
